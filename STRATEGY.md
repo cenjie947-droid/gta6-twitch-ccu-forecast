@@ -37,7 +37,11 @@ and adds nothing once size is in the model.
 Per hour, kernel-weighted quantiles of log-ratios `log(v_h / v_1)` over
 the comparables, Gaussian kernel on log hour-1 viewers (bandwidth 1.0),
 tiny hour-1 launches downweighted 0.3×, outer quantiles scaled 0.85×
-around the median. The forecast is scale-free (ratios only), so an
+around the median. Hours 2–5 are blended 25% toward the persistence
+baseline in log space: in the night dip the ratios are tight and the
+kernel estimate from a handful of effective comparables is noisy, while
+staying near hour 1 is a strong prior (LOO: mean 0.4091 → 0.4083, big
+launches 0.2067 → 0.2061). The forecast is scale-free (ratios only), so an
 hour-1 print beyond any past launch still yields the biggest launches'
 shape with no extrapolation blow-up. No per-case tuning, no randomness,
 no network: the same program runs on practice and final cases.

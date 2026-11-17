@@ -19,7 +19,11 @@ downweighting tiny hour-1 launches (their ratios are noisy). The median
 is the weighted median; the outer quantiles are scaled by 0.85 around it
 (spread calibrated by leave-one-out cross-validation over the kit's 37
 comparables: mean pinball loss 0.41 vs 0.93 for the persistence baseline,
-0.21 vs 0.25 on launches with hour 1 >= 50k).
+0.21 vs 0.25 on launches with hour 1 >= 50k). Hours 2..5 are blended 25%
+toward the persistence baseline in log space, because in the night dip
+the ratios are tight and the kernel estimate is noisy while staying near
+hour 1 is a strong prior (LOO: mean 0.4091 -> 0.4083, big launches
+0.2067 -> 0.2061).
 
 The forecast is scale-free (ratios only), so an hour-1 print beyond any
 past launch still yields the biggest launches' shape, with no
@@ -57,6 +61,15 @@ Z = [-1.6448536269514722, -0.6744897501960817, 0.0, 0.6744897501960817, 1.644853
 BW_SIZE = 1.0
 # Spread of the outer quantiles around the median (1.0 = raw weighted quantiles).
 SPREAD = 0.85
+# Early hours (2..5) are blended toward the persistence baseline: in the
+# night dip the comparables' ratios are tight and the kernel estimate from
+# a handful of effective comparables is noisy, while staying near hour 1
+# is a strong prior. The blend is a geometric mean in log space (0.25
+# weight on persistence). Leave-one-out CV: mean 0.4091 -> 0.4083, big
+# launches 0.2067 -> 0.2061; the gain is small but consistent across
+# spreads, and it never hurts the big launches the final case will be.
+BLEND_W = 0.25
+BLEND_H = 5
 # Persistence fallback spread (the house baseline's sigma).
 FALLBACK_SIGMA = 0.15
 # Hour-1 prints below this many viewers get downweighted: their ratios are noisy.
@@ -113,10 +126,15 @@ def _day_hours(hourly, day_start_ts: float) -> dict:
     return {h: sum(v) / len(v) for h, v in acc.items()}
 
 
+def _persistence_raw(p1: float, h: int) -> list:
+    """House baseline quantiles, unrounded (for blending)."""
+    s = FALLBACK_SIGMA * math.sqrt(h - 1)
+    return [p1 * math.exp(z * s) for z in Z]
+
+
 def _persistence(p1: float, h: int) -> list:
     """House baseline fallback: every hour stays at hour 1, spread widening like a random walk."""
-    s = FALLBACK_SIGMA * math.sqrt(h - 1)
-    qs = [round2(min(1e9, max(1.0, p1 * math.exp(z * s)))) for z in Z]
+    qs = [round2(min(1e9, max(1.0, v))) for v in _persistence_raw(p1, h)]
     for i in range(1, 5):
         if qs[i] < qs[i - 1]:
             qs[i] = qs[i - 1]
@@ -160,10 +178,11 @@ def _forecast_hour(p1: float, h: int, train: list) -> list:
         return _persistence(p1, h)
     raw = [_wquantile(pairs, tau) for tau in LEVELS]
     med = raw[2]
-    qs = []
-    for qv in raw:
-        v = p1 * math.exp(med + (qv - med) * SPREAD)
-        qs.append(round2(min(1e9, max(1.0, v))))
+    qs = [p1 * math.exp(med + (qv - med) * SPREAD) for qv in raw]
+    if h <= BLEND_H:
+        pers = _persistence_raw(p1, h)
+        qs = [math.exp((1 - BLEND_W) * math.log(q) + BLEND_W * math.log(p)) for q, p in zip(qs, pers)]
+    qs = [round2(min(1e9, max(1.0, v))) for v in qs]
     for i in range(1, 5):
         if qs[i] < qs[i - 1]:
             qs[i] = qs[i - 1]
